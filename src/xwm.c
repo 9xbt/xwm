@@ -3,6 +3,7 @@
 #include <stdarg.h>
 #include <stdbool.h>
 #include <X11/Xlib.h>
+#include <X11/keysym.h>
 #include "xwm.h"
 
 static bool running = true;
@@ -12,13 +13,11 @@ void frame(Window wnd) {
     if (!XGetWindowAttributes(_display, wnd, &attribs))
         printf("xwm: warning: failed to get window attributes\n");
 
-    /* don't blame me for this spaghetti 1am code that isn't even finished */
-
     const Window frame = XCreateSimpleWindow(
         _display,
-        frame,
-        attribs.x,
-        attribs.y,
+        attribs.root,
+        attribs.x + 10,
+        attribs.y + 10,
         attribs.width,
         attribs.height,
         border_width,
@@ -38,10 +37,13 @@ void frame(Window wnd) {
         _display,
         wnd,
         frame,
-        0, 0
+        -1, -1
     );
 
     XMapWindow(_display, frame);
+
+    XGrabKey(_display, XKeysymToKeycode(_display, XK_F4), Mod1Mask, wnd, True, GrabModeAsync, GrabModeAsync);
+    XGrabButton(_display, Button1, AnyModifier, wnd, True, ButtonPressMask, GrabModeAsync, GrabModeAsync, None, None);
 }
 
 void configurerequest(XConfigureRequestEvent event) {
@@ -58,8 +60,52 @@ void configurerequest(XConfigureRequestEvent event) {
 }
 
 void maprequest(XMapRequestEvent event) {
-    frame(event.window);
     XMapWindow(_display, event.window);
+    frame(event.window);
+}
+
+void keypress(XKeyEvent event) {
+    if ((event.state & Mod1Mask) &&
+        (event.keycode == XKeysymToKeycode(_display, XK_F4)))
+    {
+        printf("xwm: debug: alt+f4 pressed\n");
+    }
+}
+
+void buttonpress(XButtonEvent event) {
+    printf("xwm: debug: button pressed\n");
+
+    if (event.window != None && event.window != PointerRoot) {
+        XSetInputFocus(_display, event.window, RevertToPointerRoot, CurrentTime);
+        XRaiseWindow(_display, event.window);
+        XFlush(_display);
+    }
+}
+
+void run(void) {
+    XEvent event;
+    XSync(_display, False);
+    while (running && !XNextEvent(_display, &event)) {
+        switch (event.type) {
+            case ConfigureRequest:
+                configurerequest(event.xconfigurerequest);
+                break;
+            case MapRequest:
+                maprequest(event.xmaprequest);
+                break;
+            case KeyPress:
+                keypress(event.xkey);
+                break;
+            case ButtonPress:
+                buttonpress(event.xbutton);
+                break;
+            case CreateNotify:
+                break;
+            default:
+                printf("xwm: warning: ignored event type %d\n", event.type);
+                break;
+        }
+    }
 }
 
 void die(const char *fmt, ...) {
@@ -78,26 +124,6 @@ int wm_running(Display *display, XErrorEvent *err) {
 
 int xerror(Display *_display, XErrorEvent *err) {
     return 0;
-}
-
-void run(void) {
-    XEvent event;
-    XSync(_display, False);
-    while (running && !XNextEvent(_display, &event)) {
-        switch (event.type) {
-            case ConfigureRequest:
-                configurerequest(event.xconfigurerequest);
-                break;
-            case MapRequest:
-                maprequest(event.xmaprequest);
-                break;
-            case CreateNotify:
-                break;
-            default:
-                printf("xwm: warning: ignored event type %d", event.type);
-                break;
-        }
-    }
 }
 
 int main(int argc, char *argv[]) {
