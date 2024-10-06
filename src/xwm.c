@@ -3,6 +3,7 @@
 #include <stdarg.h>
 #include <stdbool.h>
 #include <X11/Xlib.h>
+#include <X11/Xatom.h>
 #include <X11/keysym.h>
 #include "xwm.h"
 
@@ -42,6 +43,18 @@ void frame(Window wnd) {
 
     XMapWindow(_display, frame);
 
+    Atom frameAtom = XInternAtom(_display, "FRAME_ID", False);
+    XChangeProperty(
+        _display,
+        wnd,
+        frameAtom,
+        XA_WINDOW,
+        32,
+        PropModeReplace,
+        (unsigned char*)&frame,
+        1
+    );
+
     XGrabKey(_display, XKeysymToKeycode(_display, XK_F4), Mod1Mask, wnd, True, GrabModeAsync, GrabModeAsync);
     XGrabButton(_display, Button1, AnyModifier, wnd, True, ButtonPressMask, GrabModeAsync, GrabModeAsync, None, None);
 }
@@ -64,11 +77,47 @@ void maprequest(XMapRequestEvent event) {
     frame(event.window);
 }
 
+void killframe(Window wnd) {
+    Atom frameAtom = XInternAtom(_display, "FRAME_ID", False);
+    Window frame;
+
+    Atom actual_type;
+    int actual_format;
+    unsigned long items, bytes_after;
+    unsigned char *prop = NULL;
+
+    if (XGetWindowProperty(
+        _display,
+        wnd,
+        frameAtom,
+        0,
+        1,
+        False,
+        XA_WINDOW,
+        &actual_type,
+        &actual_format,
+        &items,
+        &bytes_after,
+        &prop) == Success && items == 1)
+    {
+        frame = *(Window*)prop;
+
+        XKillClient(_display, frame);
+        //XFlush(_display);
+    }
+
+    if (prop)
+        XFree(prop);
+}
+
 void keypress(XKeyEvent event) {
     if ((event.state & Mod1Mask) &&
         (event.keycode == XKeysymToKeycode(_display, XK_F4)))
     {
         printf("xwm: debug: alt+f4 pressed\n");
+
+        killframe(event.window);
+        XKillClient(_display, event.window);
     }
 }
 
@@ -98,6 +147,9 @@ void run(void) {
                 break;
             case ButtonPress:
                 buttonpress(event.xbutton);
+                break;
+            case DestroyNotify:
+                kill(event.xdestroywindow.window);
                 break;
             case CreateNotify:
                 break;
