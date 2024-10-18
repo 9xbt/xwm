@@ -5,11 +5,14 @@
 #include <X11/Xlib.h>
 #include <X11/Xatom.h>
 #include <X11/keysym.h>
+#include <X11/cursorfont.h>
 #include "xwm.h"
 
 Display *_display;
 
 static bool running = true;
+static bool super_pressed = false, mouse_pressed = false, dragging = false;
+static int drag_start_x, drag_start_y, drag_start_mouse_x, drag_start_mouse_y;
 static frame_t *frames = NULL;
 static size_t frame_no = 0;
 
@@ -53,6 +56,8 @@ void frame(Window wnd) {
     frame_no++;
 
     XGrabKey(_display, XKeysymToKeycode(_display, XK_F4), Mod1Mask, wnd, True, GrabModeAsync, GrabModeAsync);
+    XGrabKey(_display, XKeysymToKeycode(_display, XK_Alt_L), 0, wnd, True, GrabModeAsync, GrabModeAsync);
+    XGrabButton(_display, Button1, AnyModifier, wnd, True, ButtonPressMask, GrabModeAsync, GrabModeAsync, None, None);
     XGrabButton(_display, Button1, AnyModifier, frame, True, ButtonPressMask, GrabModeAsync, GrabModeAsync, None, None);
 }
 
@@ -75,11 +80,12 @@ void maprequest(XMapRequestEvent event) {
 }
 
 void keypress(XKeyEvent event) {
+    if (event.keycode == XKeysymToKeycode(_display, XK_Alt_L))
+        super_pressed = true;
+
     if ((event.state & Mod1Mask) &&
         (event.keycode == XKeysymToKeycode(_display, XK_F4)))
     {
-        printf("xwm: debug: alt+f4 pressed\n");
-
         Atom wm_delete = XInternAtom(_display, "WM_DELETE_WINDOW", False);
         
         XEvent e;
@@ -97,14 +103,63 @@ void keypress(XKeyEvent event) {
     }
 }
 
+void keyrelease(XKeyEvent event) {
+    if (event.keycode == XKeysymToKeycode(_display, XK_Alt_L))
+        super_pressed = false;
+}
 
 void buttonpress(XButtonEvent event) {
+    mouse_pressed = true;
     printf("xwm: debug: button pressed\n");
 
     if (event.window != None && event.window != PointerRoot) {
         XSetInputFocus(_display, event.window, RevertToPointerRoot, CurrentTime);
         XRaiseWindow(_display, event.window);
         XFlush(_display);
+    }
+}
+
+void buttonrelease(XButtonEvent event) {
+    mouse_pressed = false;
+}
+
+void destroynotify(XDestroyWindowEvent event) {
+    for (size_t i = 0; i < frame_no; i++) {
+        if (event.window == frames[i].window) {
+            XDestroyWindow(_display, frames[i].frame);
+            break;
+        }
+    }
+}
+
+void motionnotify(XMotionEvent event) {
+    if (super_pressed && mouse_pressed) {
+        if (!dragging) {
+            int x, y, unused, mask;
+            Window root = DefaultRootWindow(_display), child;
+            XQueryPointer(_display, root, &root, &child, &x, &y, &unused, &unused, &mask);
+
+            XWindowAttributes attribs;
+            if (!XGetWindowAttributes(_display, child, &attribs))
+                printf("xwm: warning: failed to get window attributes\n");
+
+            drag_start_x = attribs.x;
+            drag_start_y = attribs.y;
+            drag_start_mouse_x = x;
+            drag_start_mouse_y = y;
+            dragging = true;
+
+            printf("xwm: now dragging\n");
+        }
+    } else
+        dragging = false;
+
+    if (dragging) {
+        int x, y, unused, mask;
+        Window root = DefaultRootWindow(_display), child;
+        XQueryPointer(_display, root, &root, &child, &x, &y, &unused, &unused, &mask);
+
+        XMoveWindow(_display, child, drag_start_x + (x - drag_start_mouse_x), drag_start_y + (y - drag_start_mouse_y));
     }
 }
 
@@ -122,18 +177,20 @@ void run(void) {
             case KeyPress:
                 keypress(event.xkey);
                 break;
+            case KeyRelease:
+                keyrelease(event.xkey);
+                break;
             case ButtonPress:
                 buttonpress(event.xbutton);
                 break;
-            case DestroyNotify:
-                for (size_t i = 0; i < frame_no; i++) {
-                    if (event.xdestroywindow.window == frames[i].window) {
-                        XDestroyWindow(_display, frames[i].frame);
-                        break;
-                    }
-                }
+            case ButtonRelease:
+                buttonrelease(event.xbutton);
                 break;
-            case CreateNotify:
+            case DestroyNotify:
+                destroynotify(event.xdestroywindow);
+                break;
+            case MotionNotify:
+                motionnotify(event.xmotion);
                 break;
             default:
                 printf("xwm: warning: ignored event type %d\n", event.type);
@@ -171,6 +228,14 @@ int main(int argc, char *argv[]) {
     XSync(_display, False);
     XSetErrorHandler(xerror);
     XSync(_display, False);
+
+    /* receive mouse events */
+    XGrabPointer(_display, DefaultRootWindow(_display), True, 
+                 ButtonPressMask | ButtonReleaseMask | PointerMotionMask,
+                 GrabModeAsync, GrabModeAsync, None, None, CurrentTime);
+
+    /* set mouse cursor */
+    XDefineCursor(_display, DefaultRootWindow(_display), XCreateFontCursor(_display, XC_arrow));
 
     /* main event loop */
     run();
