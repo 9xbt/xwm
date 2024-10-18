@@ -7,18 +7,22 @@
 #include <X11/keysym.h>
 #include "xwm.h"
 
+Display *_display;
+
 static bool running = true;
+static frame_t *frames = NULL;
+static size_t frame_no = 0;
 
 void frame(Window wnd) {
     XWindowAttributes attribs;
     if (!XGetWindowAttributes(_display, wnd, &attribs))
         printf("xwm: warning: failed to get window attributes\n");
 
-    const Window frame = XCreateSimpleWindow(
+    Window frame = XCreateSimpleWindow(
         _display,
         attribs.root,
-        attribs.x + 10,
-        attribs.y + 10,
+        attribs.x,
+        attribs.y,
         attribs.width,
         attribs.height,
         border_width,
@@ -29,7 +33,7 @@ void frame(Window wnd) {
     XSelectInput(
         _display,
         frame,
-        SubstructureRedirectMask | SubstructureNotifyMask
+        SubstructureRedirectMask | SubstructureNotifyMask | ButtonPressMask | ExposureMask
     );
 
     XAddToSaveSet(_display, wnd);
@@ -43,20 +47,13 @@ void frame(Window wnd) {
 
     XMapWindow(_display, frame);
 
-    Atom frameAtom = XInternAtom(_display, "FRAME_ID", False);
-    XChangeProperty(
-        _display,
-        wnd,
-        frameAtom,
-        XA_WINDOW,
-        32,
-        PropModeReplace,
-        (unsigned char*)&frame,
-        1
-    );
+    frames = realloc(frames, sizeof(frame_t) * (frame_no + 1));
+    frames[frame_no].window = wnd;
+    frames[frame_no].frame = frame;
+    frame_no++;
 
     XGrabKey(_display, XKeysymToKeycode(_display, XK_F4), Mod1Mask, wnd, True, GrabModeAsync, GrabModeAsync);
-    XGrabButton(_display, Button1, AnyModifier, wnd, True, ButtonPressMask, GrabModeAsync, GrabModeAsync, None, None);
+    XGrabButton(_display, Button1, AnyModifier, frame, True, ButtonPressMask, GrabModeAsync, GrabModeAsync, None, None);
 }
 
 void configurerequest(XConfigureRequestEvent event) {
@@ -77,49 +74,29 @@ void maprequest(XMapRequestEvent event) {
     frame(event.window);
 }
 
-void killframe(Window wnd) {
-    Atom frameAtom = XInternAtom(_display, "FRAME_ID", False);
-    Window frame;
-
-    Atom actual_type;
-    int actual_format;
-    unsigned long items, bytes_after;
-    unsigned char *prop = NULL;
-
-    if (XGetWindowProperty(
-        _display,
-        wnd,
-        frameAtom,
-        0,
-        1,
-        False,
-        XA_WINDOW,
-        &actual_type,
-        &actual_format,
-        &items,
-        &bytes_after,
-        &prop) == Success && items == 1)
-    {
-        frame = *(Window*)prop;
-
-        XKillClient(_display, frame);
-        //XFlush(_display);
-    }
-
-    if (prop)
-        XFree(prop);
-}
-
 void keypress(XKeyEvent event) {
     if ((event.state & Mod1Mask) &&
         (event.keycode == XKeysymToKeycode(_display, XK_F4)))
     {
         printf("xwm: debug: alt+f4 pressed\n");
 
-        killframe(event.window);
-        XKillClient(_display, event.window);
+        Atom wm_delete = XInternAtom(_display, "WM_DELETE_WINDOW", False);
+        
+        XEvent e;
+        e.xclient.type = ClientMessage;
+        e.xclient.serial = 0;
+        e.xclient.send_event = True;
+        e.xclient.window = event.window;
+        e.xclient.message_type = XInternAtom(_display, "WM_PROTOCOLS", True);
+        e.xclient.format = 32;
+        e.xclient.data.l[0] = wm_delete;
+        e.xclient.data.l[1] = CurrentTime;
+
+        XSendEvent(_display, event.window, False, NoEventMask, &e);
+        XFlush(_display);
     }
 }
+
 
 void buttonpress(XButtonEvent event) {
     printf("xwm: debug: button pressed\n");
@@ -149,7 +126,12 @@ void run(void) {
                 buttonpress(event.xbutton);
                 break;
             case DestroyNotify:
-                kill(event.xdestroywindow.window);
+                for (size_t i = 0; i < frame_no; i++) {
+                    if (event.xdestroywindow.window == frames[i].window) {
+                        XDestroyWindow(_display, frames[i].frame);
+                        break;
+                    }
+                }
                 break;
             case CreateNotify:
                 break;

@@ -1,6 +1,9 @@
 #include <X11/Xlib.h>
 
-Display *_display;
+typedef struct {
+    Window window;
+    Window frame;
+} frame_t;
 
 const unsigned int border_width = 1;
 const unsigned long border_color = 0x005577;
