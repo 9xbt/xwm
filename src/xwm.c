@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <stdarg.h>
 #include <stdbool.h>
+#include <string.h>
 #include <X11/Xlib.h>
 #include <X11/Xatom.h>
 #include <X11/keysym.h>
@@ -26,11 +27,10 @@ void frame(Window wnd) {
         attribs.root,
         attribs.x,
         attribs.y,
-        attribs.width,
-        attribs.height,
-        border_width,
-        border_color,
-        bg_color
+        attribs.width + 12,
+        attribs.height + 12,
+        0, 0,
+        0xc0c0c0
     );
 
     XSelectInput(
@@ -45,10 +45,14 @@ void frame(Window wnd) {
         _display,
         wnd,
         frame,
-        -1, -1
+        5, 5
     );
 
     XMapWindow(_display, frame);
+
+    GC gc = XCreateGC(_display, frame, 0, NULL);
+    XSetForeground(_display, gc, BlackPixel(_display, 0));
+    XFreeGC(_display, gc);
 
     frames = realloc(frames, sizeof(frame_t) * (frame_no + 1));
     frames[frame_no].window = wnd;
@@ -110,7 +114,6 @@ void keyrelease(XKeyEvent event) {
 
 void buttonpress(XButtonEvent event) {
     mouse_pressed = true;
-    printf("xwm: debug: button pressed\n");
 
     if (event.window != None && event.window != PointerRoot) {
         XSetInputFocus(_display, event.window, RevertToPointerRoot, CurrentTime);
@@ -135,7 +138,8 @@ void destroynotify(XDestroyWindowEvent event) {
 void motionnotify(XMotionEvent event) {
     if (super_pressed && mouse_pressed) {
         if (!dragging) {
-            int x, y, unused, mask;
+            int x, y, unused;
+            unsigned int mask;
             Window root = DefaultRootWindow(_display), child;
             XQueryPointer(_display, root, &root, &child, &x, &y, &unused, &unused, &mask);
 
@@ -148,18 +152,35 @@ void motionnotify(XMotionEvent event) {
             drag_start_mouse_x = x;
             drag_start_mouse_y = y;
             dragging = true;
-
-            printf("xwm: now dragging\n");
         }
     } else
         dragging = false;
 
     if (dragging) {
-        int x, y, unused, mask;
+        int x, y, unused;
+        unsigned int mask;
         Window root = DefaultRootWindow(_display), child;
-        XQueryPointer(_display, root, &root, &child, &x, &y, &unused, &unused, &mask);
+        if (!XQueryPointer(_display, root, &root, &child, &x, &y, &unused, &unused, &mask))
+            printf("xwm: warning: failed to get pointer position\n");
 
         XMoveWindow(_display, child, drag_start_x + (x - drag_start_mouse_x), drag_start_y + (y - drag_start_mouse_y));
+    }
+}
+
+void expose(XExposeEvent event) {
+    if (event.count == 0) {
+        XWindowAttributes attribs;
+        if (!XGetWindowAttributes(_display, event.window, &attribs))
+            printf("xwm: warning: failed to get window attributes\n");
+
+        GC gc = XCreateGC(_display, event.window, 0, NULL);
+        XSetForeground(_display, gc, 0xdfdfdf);
+        XDrawRectangle(_display, event.window, gc, 0, 0, attribs.width - 1, attribs.height - 1);
+        XSetForeground(_display, gc, 0xffffff);
+        XDrawRectangle(_display, event.window, gc, 1, 1, attribs.width - 3, attribs.height - 3);
+        XSetForeground(_display, gc, 0x808080);
+        XDrawRectangle(_display, event.window, gc, 4, 4, attribs.width - 9, attribs.height - 9);
+        XFreeGC(_display, gc);
     }
 }
 
@@ -191,6 +212,9 @@ void run(void) {
                 break;
             case MotionNotify:
                 motionnotify(event.xmotion);
+                break;
+            case Expose:
+                expose(event.xexpose);
                 break;
             default:
                 printf("xwm: warning: ignored event type %d\n", event.type);

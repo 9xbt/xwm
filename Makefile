@@ -14,8 +14,8 @@ OUT = bin/xwm
 all: $(OUT)
 
 run: all
-	@Xephyr :1 & sleep 0.1
-	@DISPLAY=:1 ./$(OUT)
+	@Xephyr -br -ac -noreset -screen 800x600 :1 & sleep 0.1
+	@DISPLAY=:1 ./$(OUT) & DISPLAY=:1 xterm
 
 $(OUT): $(OBJECTS)
 	@$(CC) $(OBJECTS) -lX11 -o $(OUT)
