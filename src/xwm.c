@@ -1,9 +1,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
-#include <stdbool.h>
 #include <string.h>
+#include <stdbool.h>
 #include <X11/Xlib.h>
+#include <X11/Xutil.h>
 #include <X11/Xatom.h>
 #include <X11/keysym.h>
 #include <X11/cursorfont.h>
@@ -28,7 +29,7 @@ void frame(Window wnd) {
         attribs.x,
         attribs.y,
         attribs.width + 12,
-        attribs.height + 12,
+        attribs.height + 32,
         0, 0,
         0xc0c0c0
     );
@@ -45,7 +46,7 @@ void frame(Window wnd) {
         _display,
         wnd,
         frame,
-        5, 5
+        5, 25
     );
 
     XMapWindow(_display, frame);
@@ -174,12 +175,18 @@ void expose(XExposeEvent event) {
             printf("xwm: warning: failed to get window attributes\n");
 
         GC gc = XCreateGC(_display, event.window, 0, NULL);
+
         XSetForeground(_display, gc, 0xdfdfdf);
         XDrawRectangle(_display, event.window, gc, 0, 0, attribs.width - 1, attribs.height - 1);
         XSetForeground(_display, gc, 0xffffff);
         XDrawRectangle(_display, event.window, gc, 1, 1, attribs.width - 3, attribs.height - 3);
         XSetForeground(_display, gc, 0x808080);
-        XDrawRectangle(_display, event.window, gc, 4, 4, attribs.width - 9, attribs.height - 9);
+        XDrawRectangle(_display, event.window, gc, 4, 24, attribs.width - 9, attribs.height - 29);
+        XSetForeground(_display, gc, 0x000080);
+        XFillRectangle(_display, event.window, gc, 4, 4, attribs.width - 8, 18);
+        XSetForeground(_display, gc, 0xffffff);
+        XDrawString(_display, event.window, gc, 8, 17, "client", 6);
+
         XFreeGC(_display, gc);
     }
 }
@@ -260,6 +267,11 @@ int main(int argc, char *argv[]) {
 
     /* set mouse cursor */
     XDefineCursor(_display, DefaultRootWindow(_display), XCreateFontCursor(_display, XC_arrow));
+
+    /* set background color */
+    Window root = DefaultRootWindow(_display);
+    XSetWindowBackground(_display, root, 0x008080);
+    XClearWindow(_display, root);
 
     /* main event loop */
     run();
