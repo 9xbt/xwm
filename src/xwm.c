@@ -21,7 +21,7 @@ static size_t frame_no = 0;
 void frame(Window wnd) {
     XWindowAttributes attribs;
     if (!XGetWindowAttributes(_display, wnd, &attribs))
-        printf("xwm: warning: failed to get window attributes\n");
+        printf("frame(): warning: failed to get window attributes\n");
 
     Window frame = XCreateSimpleWindow(
         _display,
@@ -43,8 +43,10 @@ void frame(Window wnd) {
     XSelectInput(
         _display,
         wnd,
-        SubstructureRedirectMask | SubstructureNotifyMask | ButtonPressMask
+        StructureNotifyMask | SubstructureNotifyMask | ButtonPressMask | ButtonReleaseMask | KeyPressMask | KeyReleaseMask | PointerMotionMask | FocusChangeMask | ExposureMask
     );
+
+    XSetInputFocus(_display, wnd, RevertToPointerRoot, CurrentTime);
 
     XAddToSaveSet(_display, wnd);
 
@@ -52,7 +54,7 @@ void frame(Window wnd) {
         _display,
         wnd,
         frame,
-        5, 25
+        6, 26
     );
 
     XMapWindow(_display, frame);
@@ -62,13 +64,16 @@ void frame(Window wnd) {
     XFreeGC(_display, gc);
 
     frames = realloc(frames, sizeof(frame_t) * (frame_no + 1));
+
+    if (frames == NULL)
+        printf("frame(): warning: reallocation failed\n");
+
     frames[frame_no].window = wnd;
     frames[frame_no].frame = frame;
     frame_no++;
 
     XGrabKey(_display, XKeysymToKeycode(_display, XK_F4), Mod1Mask, wnd, True, GrabModeAsync, GrabModeAsync);
     XGrabKey(_display, XKeysymToKeycode(_display, XK_Alt_L), 0, wnd, True, GrabModeAsync, GrabModeAsync);
-    XGrabButton(_display, Button1, AnyModifier, wnd, True, ButtonPressMask, GrabModeAsync, GrabModeAsync, None, None);
     XGrabButton(_display, Button1, AnyModifier, frame, True, ButtonPressMask, GrabModeAsync, GrabModeAsync, None, None);
 }
 
@@ -86,6 +91,7 @@ void configurerequest(XConfigureRequestEvent event) {
 }
 
 void maprequest(XMapRequestEvent event) {
+    XSetWindowBorderWidth(_display, event.window, 0);
     XMapWindow(_display, event.window);
     frame(event.window);
 }
@@ -128,8 +134,15 @@ void buttonpress(XButtonEvent event) {
     XQueryPointer(_display, root, &root, &child, &x, &y, &unused, &unused, &mask);
 
     if (event.window != None && event.window != PointerRoot) {
-        XSetInputFocus(_display, getclientwindow(child), RevertToPointerRoot, CurrentTime);
-        XRaiseWindow(_display, child);
+        Window client = getclientwindow(child);
+
+        if (client == None) {
+            printf("buttonpress(): warning: failed to get client\n");
+            return;
+        }
+        
+        XSetInputFocus(_display, client, RevertToPointerRoot, CurrentTime);
+        XRaiseWindow(_display, client);
         XFlush(_display);
     }
 }
@@ -157,7 +170,7 @@ void motionnotify(XMotionEvent event) {
 
             XWindowAttributes attribs;
             if (!XGetWindowAttributes(_display, child, &attribs))
-                printf("xwm: warning: failed to get window attributes\n");
+                printf("motionnotify(): warning: failed to get window attributes\n");
 
             drag_start_x = attribs.x;
             drag_start_y = attribs.y;
@@ -173,7 +186,7 @@ void motionnotify(XMotionEvent event) {
         unsigned int mask;
         Window root = DefaultRootWindow(_display), child;
         if (!XQueryPointer(_display, root, &root, &child, &x, &y, &unused, &unused, &mask))
-            printf("xwm: warning: failed to get pointer position\n");
+            printf("motionnotify(): warning: failed to get pointer position\n");
 
         XMoveWindow(_display, child, drag_start_x + (x - drag_start_mouse_x), drag_start_y + (y - drag_start_mouse_y));
     }
@@ -183,7 +196,7 @@ void expose(XExposeEvent event) {
     if (event.count == 0) {
         XWindowAttributes attribs;
         if (!XGetWindowAttributes(_display, event.window, &attribs))
-            printf("xwm: warning: failed to get window attributes\n");
+            printf("expose(): warning: failed to get window attributes\n");
 
         GC gc = XCreateGC(_display, event.window, 0, NULL);
 
@@ -193,6 +206,8 @@ void expose(XExposeEvent event) {
         XDrawRectangle(_display, event.window, gc, 1, 1, attribs.width - 3, attribs.height - 3);
         XSetForeground(_display, gc, 0x808080);
         XDrawRectangle(_display, event.window, gc, 4, 24, attribs.width - 9, attribs.height - 29);
+        XSetForeground(_display, gc, 0x000000);
+        XDrawRectangle(_display, event.window, gc, 5, 25, attribs.width - 11, attribs.height - 31);
         XSetForeground(_display, gc, 0x000080);
         XFillRectangle(_display, event.window, gc, 4, 4, attribs.width - 8, 18);
         XSetForeground(_display, gc, 0xffffff);
@@ -235,7 +250,7 @@ void run(void) {
                 expose(event.xexpose);
                 break;
             default:
-                printf("xwm: warning: ignored event type %d\n", event.type);
+                printf("run(): warning: ignored event type %d\n", event.type);
                 break;
         }
     }
