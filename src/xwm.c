@@ -37,7 +37,13 @@ void frame(Window wnd) {
     XSelectInput(
         _display,
         frame,
-        SubstructureRedirectMask | SubstructureNotifyMask | ButtonPressMask | ExposureMask
+        SubstructureRedirectMask | SubstructureNotifyMask | ExposureMask
+    );
+
+    XSelectInput(
+        _display,
+        wnd,
+        SubstructureRedirectMask | SubstructureNotifyMask | ButtonPressMask
     );
 
     XAddToSaveSet(_display, wnd);
@@ -116,9 +122,14 @@ void keyrelease(XKeyEvent event) {
 void buttonpress(XButtonEvent event) {
     mouse_pressed = true;
 
+    int x, y, unused;
+    unsigned int mask;
+    Window root = DefaultRootWindow(_display), child;
+    XQueryPointer(_display, root, &root, &child, &x, &y, &unused, &unused, &mask);
+
     if (event.window != None && event.window != PointerRoot) {
-        XSetInputFocus(_display, event.window, RevertToPointerRoot, CurrentTime);
-        XRaiseWindow(_display, event.window);
+        XSetInputFocus(_display, getclientwindow(child), RevertToPointerRoot, CurrentTime);
+        XRaiseWindow(_display, child);
         XFlush(_display);
     }
 }
@@ -230,6 +241,19 @@ void run(void) {
     }
 }
 
+Window getclientwindow(Window frame) {
+    Window root_return, parent_return;
+    Window *children;
+    unsigned int n;
+
+    if (XQueryTree(_display, frame, &root_return, &parent_return, &children, &n)) {
+        Window client_window = children[0];
+        XFree(children);
+        return client_window;
+    }
+    return None;
+}
+
 void die(const char *fmt, ...) {
     va_list args;
     va_start(args, fmt);
@@ -240,7 +264,7 @@ void die(const char *fmt, ...) {
 }
 
 int wm_running(Display *display, XErrorEvent *err) {
-    die("xwm: another window manager is running already");
+    die("xwm: another window manager is running already\n");
     return -1;
 }
 

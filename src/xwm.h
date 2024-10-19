@@ -5,7 +5,7 @@ typedef struct {
     Window frame;
 } frame_t;
 
-int gettextprop(Window wnd, Atom atom, char *text, unsigned int size);
+Window getclientwindow(Window frame);
 void run(void);
 void die(const char *fmt, ...);
 int wm_running(Display *display, XErrorEvent *err);
